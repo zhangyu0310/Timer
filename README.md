@@ -1,6 +1,6 @@
 # Timer
 
-> A C++11 cross-platform Timer implementation.
+> A C++11 cross-platform Timer implementation on POSIX.
 
 ### Easy to use
 

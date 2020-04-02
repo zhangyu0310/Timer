@@ -62,19 +62,16 @@ void ManagerTimer::stopAndJoin() {
 }
 
 void ManagerTimer::alarm() {
-    std::unique_lock<std::mutex> lk(mutex_);
-    auto now_time = std::chrono::time_point_cast<Accuracy>(
-            std::chrono::steady_clock::now());
+    auto now_time = std::chrono::time_point_cast<Accuracy>(Clock::now());
     if (now_time > now_time_) {
         now_time_ = now_time;
     }
-    lk.unlock();
     cv_.notify_one();
 }
 
 void ManagerTimer::loop() {
     while (running_) {
-        std::unique_lock<std::mutex> lk(mutex_);
+        std::unique_lock<std::mutex> lk(loop_mutex_);
         // Wait for notify or 1 hour.
         cv_.wait_for(lk, Seconds(3600));
         auto timer_iter = timer_map_.begin();
@@ -96,6 +93,7 @@ void ManagerTimer::loop() {
                     }
                     timer->handling_time_ = now_time_;
                 }
+                std::lock_guard<std::mutex> lock(map_mutex_);
                 repeatFunc(timer);
                 timer_iter = timer_map_.erase(timer_iter);
             } else {
@@ -104,8 +102,9 @@ void ManagerTimer::loop() {
             }
         }
         // Set new time alarm.
-        if (timer_iter != timer_map_.end()) {
-            setNewAlarm(timer_iter->second->expiration_);
+        std::lock_guard<std::mutex> lock(map_mutex_);
+        if (!timer_map_.empty()) {
+            setNewAlarm(timer_map_.begin()->second->expiration_);
         }
     }
 }
@@ -115,7 +114,7 @@ void ManagerTimer::repeatFunc(const TimerPtr& timer) {
         timer->duration_ > Accuracy::zero()) {
         auto new_expiration = timer->expiration_ + timer->duration_;
         timer->expiration_ = new_expiration;
-        timer_map_.insert(std::make_pair(new_expiration, timer));
+        timer_map_.emplace(std::make_pair(new_expiration, timer));
     }
 }
 

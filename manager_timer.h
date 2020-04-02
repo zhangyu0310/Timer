@@ -164,13 +164,14 @@ private:
     std::atomic_bool init_;
     std::atomic_bool running_;
     timer_t timer_id_;
-    TimerMap timer_map_;
+    std::mutex map_mutex_;
+    TimerMap timer_map_; // // Project by map_mutex_
     std::thread loop_thread_;
     ThreadPool* thread_pool_;
 
-    std::mutex mutex_;
+    std::mutex loop_mutex_;
     std::condition_variable cv_;
-    TimePoint now_time_; // Project by mutex_ & cv_.
+    TimePoint now_time_;
 
     Accuracy over_time_;
 };
@@ -187,8 +188,12 @@ auto ManagerTimer::addJobRunAt(
             std::bind(std::forward<Func>(cb_func), std::forward<Args>(args)...)
     );
     timer->cb_func_ = ([task](){ (*task)(); });
-    timer_map_.emplace(std::make_pair(timer->expiration_, timer));
-    setNewAlarm(timer->expiration_);
+    map_mutex_.lock();
+    auto iter = timer_map_.emplace(std::make_pair(timer->expiration_, timer));
+    if (iter == timer_map_.begin()) {
+        setNewAlarm(timer->expiration_);
+    }
+    map_mutex_.unlock();
     return std::make_pair(timer, task->get_future());
 }
 
@@ -240,8 +245,12 @@ ManagerTimer::TimerPtr ManagerTimer::addJobRunEvery(
         Func&& cb_func, Args&&... args) {
     std::shared_ptr<Timer> timer(new Timer(duration));
     timer->cb_func_ = std::bind(std::forward<Func>(cb_func), std::forward<Args>(args)...);
-    timer_map_.emplace(std::make_pair(timer->expiration_, timer));
-    setNewAlarm(timer->expiration_);
+    map_mutex_.lock();
+    auto iter = timer_map_.emplace(std::make_pair(timer->expiration_, timer));
+    if (iter == timer_map_.begin()) {
+        setNewAlarm(timer->expiration_);
+    }
+    map_mutex_.unlock();
     return timer;
 }
 
@@ -334,8 +343,12 @@ ManagerTimer::TimerPtr ManagerTimer::addJobRepeatAt(
                     alarm_time - std::chrono::time_point_cast<A>(C::now())));
     std::shared_ptr<Timer> timer(new Timer(exp, duration));
     timer->cb_func_ = std::bind(std::forward<Func>(cb_func), std::forward<Args>(args)...);
-    timer_map_.emplace(std::make_pair(timer->expiration_, timer));
-    setNewAlarm(timer->expiration_);
+    map_mutex_.lock();
+    auto iter = timer_map_.emplace(std::make_pair(timer->expiration_, timer));
+    if (iter == timer_map_.begin()) {
+        setNewAlarm(timer->expiration_);
+    }
+    map_mutex_.unlock();
     return timer;
 }
 
